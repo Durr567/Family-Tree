@@ -45,7 +45,7 @@ svg path{fill:none;stroke:var(--ln);stroke-width:2}svg .pt{stroke:var(--acc);str
 // ---- CONFIG: set your repo once so family only need the link ----
 const REPO="YOUR-USER/YOUR-REPO", FILE="tree.json", PIN_HASH="b192c9bbefcbd7b0c7bf0d22de062086cc167f80d5287c2351a5748ad3a085fd";
 const W=170,H=72,G=20,$=s=>document.querySelector(s),uid=()=>Math.random().toString(36).slice(2,9);
-let D={people:[],rels:[]},V={x:60,y:60,k:1},sel=null,drag=null,sha=null,timer=null;
+let conn=null,D={people:[],rels:[]},V={x:60,y:60,k:1},sel=null,drag=null,sha=null,timer=null;
 let cfg=JSON.parse(localStorage.getItem('ft-gh')||'{}');
 const stage=$('#stage'),world=$('#world'),svg=$('#ln'),tmp=$('#tmp'),person=id=>D.people.find(p=>p.id==id);
 const st=t=>$('#st').textContent=t;
@@ -77,7 +77,11 @@ $('#gh').onclick=()=>{const r=prompt('GitHub repo (owner/name):',repo());if(r===
 // ---- geometry ----
 const pos=(id,q)=>{const p=person(id);return q=='t'?[p.x+W/2,p.y]:q=='b'?[p.x+W/2,p.y+H]:q=='l'?[p.x,p.y+H/2]:[p.x+W,p.y+H/2]};
 function lines(){let s='';for(const r of D.rels){const A=person(r.a),B=person(r.b);if(!A||!B)continue;
-  if(r.t=='p'){const[x1,y1]=pos(r.a,'b'),[x2,y2]=pos(r.b,'t'),m=(y1+y2)/2;s+=`<path d="M${x1} ${y1}V${m}H${x2}V${y2}"/>`}
+  if(r.t=='p'){const[x2,y2]=pos(r.b,'t');
+    const o=D.rels.filter(q=>q.t=='p'&&q.b==r.b&&q.a!=r.a).map(q=>q.a).find(id=>person(id)&&D.rels.some(q=>q.t=='s'&&((q.a==r.a&&q.b==id)||(q.b==r.a&&q.a==id))));
+    if(o){if(r.a>o)continue;const O=person(o),[L,R]=A.x<O.x?[A,O]:[O,A],sx=(L.x+W+R.x)/2,sy=(L.y+R.y)/2+H/2,bot=Math.max(A.y,O.y)+H,m=y2>bot?(bot+y2)/2:(sy+y2)/2;
+      s+=`<path d="M${sx} ${sy}V${m}H${x2}V${y2}"/>`} // from between both parents
+    else{const[x1,y1]=pos(r.a,'b'),m=(y1+y2)/2;s+=`<path d="M${x1} ${y1}V${m}H${x2}V${y2}"/>`}}
   else{const[L,R]=A.x<B.x?[A,B]:[B,A];s+=`<path class="pt" d="M${L.x+W} ${L.y+H/2}L${R.x} ${R.y+H/2}"/>`}}svg.innerHTML=s}
 function view(){world.style.transform=`translate(${V.x}px,${V.y}px) scale(${V.k})`;const g=G*V.k;stage.style.background=`radial-gradient(var(--dot) 1.2px,transparent 1.5px) ${V.x}px ${V.y}px/${g}px ${g}px`}
 const toW=e=>{const r=stage.getBoundingClientRect();return[(e.clientX-r.left-V.x)/V.k,(e.clientY-r.top-V.y)/V.k]};
@@ -112,12 +116,42 @@ function panel(){const el=$('#panel'),p=person(sel);
   for(const r of rels){const o=person(r.a==p.id?r.b:r.a);if(!o)continue;const d=document.createElement('div');d.className='rel';
     const kind=r.t=='s'?'Partner':r.a==p.id?'Child':'Parent';d.append(kind+': '+(o.name||'Unnamed'));
     const x=document.createElement('button');x.textContent='×';x.title='Remove connection';x.onclick=()=>{D.rels=D.rels.filter(q=>q!==r);save();render()};d.append(x);el.append(d)}
+  const qa=document.createElement('div');qa.style.cssText='display:flex;flex-wrap:wrap;gap:6px;margin-top:10px';
+  for(const[k,l]of[['parent','Add parent'],['partner','Add partner'],['child','Add child'],['sibling','Add sibling']]){const b=document.createElement('button');b.textContent=l;b.onclick=()=>quickAdd(k);qa.append(b)}
+  const cb=document.createElement('button');cb.textContent='Connect two people';cb.onclick=()=>{conn=conn==p.id?null:p.id;panel()};qa.append(cb);el.append(qa);
+  if(conn==p.id){const box=document.createElement('div');box.style.cssText='margin-top:8px;padding:8px;border:1px solid var(--bd);border-radius:6px';
+    const others=D.people.filter(q=>q!==p).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+    if(!others.length)box.textContent='Add another person first.';else{
+      const s1=document.createElement('select'),s2=document.createElement('select');s1.style.cssText=s2.style.cssText='width:100%;margin:3px 0;padding:5px';
+      others.forEach(q=>s1.add(new Option((q.name||'Unnamed')+(q.born?' ('+q.born+')':''),q.id)));
+      [['p','is a parent of'],['c','is a child of'],['s','is a partner of']].forEach(([v,l])=>s2.add(new Option(l,v)));
+      const nm=document.createElement('div');nm.textContent=p.name||'Unnamed';nm.style.fontWeight='600';
+      const go=document.createElement('button');go.textContent='Connect';go.style.marginTop='4px';
+      go.onclick=()=>{const o=s1.value,t=s2.value,ok=t=='p'?addLink('p',o,p.id):t=='c'?addLink('p',p.id,o):addLink('s',p.id,o);
+        if(!ok){st('Those two are already connected that way.');return}conn=null;save();render()};
+      box.append(s1,s2,nm,go)}
+    el.append(box)}
   const del=document.createElement('button');del.textContent='Delete person';del.style.cssText='margin-top:14px;color:#b3372b';
-  del.onclick=()=>{if(confirm('Delete '+(p.name||'this person')+' and their connections?')){D.people=D.people.filter(q=>q!==p);D.rels=D.rels.filter(r=>r.a!=p.id&&r.b!=p.id);sel=null;save();render()}};el.append(del)}
+  del.onclick=()=>{if(!del.dataset.arm){del.dataset.arm='1';del.textContent='Click again to confirm delete';setTimeout(()=>{del.dataset.arm='';del.textContent='Delete person'},3000);return}
+    D.people=D.people.filter(q=>q!==p);D.rels=D.rels.filter(r=>r.a!=p.id&&r.b!=p.id);sel=null;conn=null;save();render()};el.append(del)}
 
 // ---- interaction ----
+function addLink(t,a,b){if(a==b||D.rels.some(r=>r.t==t&&((r.a==a&&r.b==b)||(t=='s'&&r.a==b&&r.b==a))))return false;D.rels.push({t,a,b});return true}
 function link(d){let a,b,t='p';if(d.port=='b')[a,b]=[d.from,d.to];else if(d.port=='t')[a,b]=[d.to,d.from];else{a=d.from;b=d.to;t='s'}
-  if(!D.rels.some(r=>r.t==t&&((r.a==a&&r.b==b)||(t=='s'&&r.a==b&&r.b==a)))){D.rels.push({t,a,b});save()}render()}
+  if(addLink(t,a,b))save();render()}
+// place a new person near (x,y), shifting right until the spot is free
+function spawn(x,y,name){const n={id:uid(),name,x,y};while(D.people.some(q=>Math.abs(q.x-n.x)<W+20&&Math.abs(q.y-n.y)<H+20))n.x+=200;D.people.push(n);return n}
+function quickAdd(kind){const p=person(sel);let n;
+  if(kind=='partner'){n=spawn(p.x+200,p.y,'New partner');addLink('s',p.id,n.id)}
+  else if(kind=='parent'){const ex=D.rels.filter(r=>r.t=='p'&&r.b==p.id).map(r=>person(r.a)).filter(Boolean);
+    n=ex.length==1?spawn(ex[0].x+200,ex[0].y,'New parent'):spawn(p.x,p.y-160,'New parent');addLink('p',n.id,p.id);
+    if(ex.length==1)addLink('s',ex[0].id,n.id)} // second parent is partnered with the first
+  else if(kind=='child'){n=spawn(p.x,p.y+160,'New child');addLink('p',p.id,n.id);
+    const ps=D.rels.filter(r=>r.t=='s'&&(r.a==p.id||r.b==p.id));if(ps.length==1)addLink('p',ps[0].a==p.id?ps[0].b:ps[0].a,n.id)} // a single partner becomes co-parent
+  else{let par=D.rels.filter(r=>r.t=='p'&&r.b==p.id).map(r=>r.a);
+    if(!par.length){const q=spawn(p.x,p.y-160,'Unknown parent');addLink('p',q.id,p.id);par=[q.id]}
+    n=spawn(p.x+200,p.y,'New sibling');par.forEach(a=>addLink('p',a,n.id))}
+  sel=n.id;conn=null;save();render()}
 stage.onpointerdown=e=>{const port=e.target.closest('.port'),node=e.target.closest('.node');
   if(port)drag={m:'link',from:node.dataset.id,port:port.dataset.p};
   else if(node){const p=person(node.dataset.id),w=toW(e);drag={m:'move',id:p.id,dx:w[0]-p.x,dy:w[1]-p.y};sel=p.id;stage.querySelectorAll('.node.sel').forEach(n=>n.classList.remove('sel'));node.classList.add('sel');panel()}
@@ -142,7 +176,7 @@ $('#pf').onchange=e=>{const f=e.target.files[0],p=person(sel);if(!f||!p)return;c
   im.src=URL.createObjectURL(f);e.target.value=''};
 $('#ex').onclick=()=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(D)],{type:'application/json'}));a.download='tree.json';a.click()};
 $('#im').onclick=()=>$('#file').click();
-$('#file').onchange=async e=>{try{const j=JSON.parse(await e.target.files[0].text());if(!j.people||!j.rels)throw 0;D=j;sel=null;save();render();fit()}catch{alert('Not a valid tree.json')}e.target.value=''};
+$('#file').onchange=async e=>{try{const j=JSON.parse(await e.target.files[0].text());if(!j.people||!j.rels)throw 0;D=j;sel=null;save();render();fit()}catch{st('Not a valid tree.json')}e.target.value=''};
 addEventListener('keydown',e=>{if(e.key=='Escape'){sel=null;render()}});
 view();panel();
 </script></body></html>
